@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+  <!DOCTYPE html>
+<html lang="en">
+<head><meta name="generator" content="Hexo 3.8.0">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+  
+  <title>Geek 9th Writeup - P1g3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  
+  <meta name="keywords" content="P1g3">
+  
+  
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=1.02">
+  
+  
+    <link rel="alternate" href="/atom.xml " title="P1g3" type="application/atom+xml">
+  
+
+  <link rel="stylesheet" href="/css/style.css">
+</head></html>
+  <body>
+    <div class="container">
+      <header class="header">
+  <div class="blog-title">
+    <a href="/" class="logo">P1g3</a>
+    <div class="subtitle"></div>
+  </div>
+  <nav class="navbar">
+    <ul class="menu">
+      
+        <li class="menu-item">
+          <a href="/" class="menu-item-link">Home</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/archives" class="menu-item-link">Archives</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/about" class="menu-item-link">About</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/friends" class="menu-item-link">Friends</a>
+        </li>
+      
+    </ul>
+  </nav>
+</header>
+<article class="post">
+  <div class="post-title">
+    <h1 class="article-title">Geek 9th Writeup</h1>
+  </div>
+   <div class="post-meta">
+    <span class="post-time">2018-11-18</span>
+  </div>
+  <div class="post-content">
+    <h2 id="test"><a href="#test" class="headerlink" title="test"></a><strong>test</strong></h2><p><strong>Welcome:签到题，直接给了flag。</strong></p>
+<p>flag:SYC{welc0me_to_g33k_have_f1n!}</p>
+<p><strong>凑分题233333：这是因为WEB的一道题被非预期之后修改代码重新出的一道题。</strong></p>
+<p>代码如下：</p>
+<pre><code>&lt;?php 
+
+function check_inner_ip($url) 
+{ 
+    $match_result=preg_match(&apos;/^(http|https)?:\/\/.*(\/)?.*$/&apos;,$url); 
+    if (!$match_result) 
+    { 
+        die(&apos;url fomat error1&apos;); 
+    } 
+    try 
+    { 
+        $url_parse=parse_url($url); 
+    } 
+    catch(Exception $e) 
+    { 
+        die(&apos;url fomat error2&apos;); 
+    } 
+    $hostname=$url_parse[&apos;host&apos;]; 
+    $ip=gethostbyname($hostname); 
+    $int_ip=ip2long($ip); 
+    return ip2long(&apos;127.0.0.0&apos;)&gt;&gt;24 == $int_ip&gt;&gt;24 || ip2long(&apos;10.0.0.0&apos;)&gt;&gt;24 == $int_ip&gt;&gt;24 || ip2long(&apos;172.16.0.0&apos;)&gt;&gt;20 == $int_ip&gt;&gt;20 || ip2long(&apos;192.168.0.0&apos;)&gt;&gt;16 == $int_ip&gt;&gt;16 || ip2long(&apos;0.0.0.0&apos;)&gt;&gt;24 == $int_ip&gt;&gt;24;
+} 
+
+function safe_request_url($url) 
+{ 
+
+    if (check_inner_ip($url)) 
+    { 
+        echo $url.&apos; is inner ip&apos;; 
+    } 
+    else 
+    { 
+        $ch = curl_init(); 
+        curl_setopt($ch, CURLOPT_URL, $url); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        $output = curl_exec($ch); 
+        $result_info = curl_getinfo($ch); 
+        if ($result_info[&apos;redirect_url&apos;]) 
+        { 
+            safe_request_url($result_info[&apos;redirect_url&apos;]); 
+        } 
+        curl_close($ch); 
+        var_dump($output); 
+    } 
+
+} 
+
+$url = $_POST[&apos;url&apos;]; 
+if(!empty($url)){ 
+    safe_request_url($url); 
+} 
+else{ 
+    highlight_file(__file__); 
+} 
+
+//hint23333: 
+//flag in flag.php 
+//phpinfo in phpinfo.php 
+
+?&gt;
+</code></pre><p>一个SSRF，但是限制了IP和协议，用DNS重绑定即可绕过，这里有时候会显示is inner ip，因为ip是随机的，多访问几次就好了。</p>
+<p>![QQ截图20181005093423.png-73.9kB][1]</p>
+<p>flag:SYC{t3st_0nly_9}</p>
+<h2 id="WEB"><a href="#WEB" class="headerlink" title="WEB"></a><strong>WEB</strong></h2><p><strong>2000字的检讨</strong></p>
+<p>![QQ截图20181005093423.png-714.8kB][2]</p>
+<p>网页禁止了直接查看源码，我们可以Ctrl+U用快捷键看源码，提交了检讨后flag就出来了。</p>
+<p>![QQ截图20181005093423.png-22.9kB][3]</p>
+<p> flag:SYC{evoA_Y0ur_JusT_3Scap3_Th3_Jav4scr1pt_l1m1T}</p>
+<p> <strong>幸运大挑战</strong></p>
+<p> 题目要求我们点一个按钮，要求数字点到10。</p>
+<p> ![QQ截图20181005093423.png-54.7kB][4]</p>
+<p> 观察URL：[<a href="http://wholuck.game.sycsec.com/form?score=1.68][5],score后跟着秒数，于是我们直接将score的秒数改成10.00就好啦。" target="_blank" rel="noopener">http://wholuck.game.sycsec.com/form?score=1.68][5],score后跟着秒数，于是我们直接将score的秒数改成10.00就好啦。</a></p>
+<p>![QQ截图20181005093423.png-95.8kB][6]</p>
+<p>flag:SYC{evoA_U_are_V3ry_FanTaStic_2_G3t_l0!}</p>
+<p><strong>代号为geek的行动第二幕：废弃的地下黑客论坛</strong></p>
+<p>![QQ截图20181005093423.png-1038kB][7]</p>
+<p>打开页面一看，是个后台登陆界面框，随便输了账号密码，下面跳出查询语句，猜测为万能密码，网上找了个php万能密码，’ OR ‘1’=’1，登陆之，得到flag。</p>
+<p>![QQ截图20181005093423.png-1020.1kB][8]</p>
+<p>flag:SYC{h4ck-by-l0c4l6uy-23333333333}</p>
+<p><strong>geek番外篇之废弃的地下黑客论坛</strong></p>
+<p>这道题和上边那道题一样思路，只不过对长度有了要求，不能超过四个字符，于是换了个短点的万能密码,user:\ pass:||1#，即可得到flag。</p>
+<p> flag:SYC{yun-we1-ya0-be1-gu0}</p>
+<p> <strong>初来乍到</strong></p>
+<p> 给了hint：HTML源码中藏着秘密，打开网页之后查看源码，从源码中得到flag。</p>
+<p> flag:SYC{View_Page_Source_to_Get_Flag}</p>
+<p> <strong>代号为geek的行动第三幕：暗网追击</strong></p>
+<blockquote>
+<p> 废弃的后台已经没有当年的论坛人员信息，只有管理员的最后留下的一则公告:Brothers, the forum moved to the<br>dark network xxxxxxxx.onion the new name is HumanSkeleton, where we<br>will meet again.“穿山甲”顺藤摸瓜的找到了入口，可是权限好像有点问题？</p>
+</blockquote>
+<p>打开链接后看到一张图：</p>
+<p>![QQ截图20181005093423.png-145kB][9]</p>
+<p>根据图片内容以及hint猜测是权限不对，burp抓包。</p>
+<p>![QQ截图20181005093423.png-71.3kB][10]</p>
+<p>将is_admin的值改为1即可获取flag的图片地址。</p>
+<p>![QQ截图20181005093423.png-157.9kB][11]</p>
+<p>flag:SYC{w3lc0m3-4dm1n}</p>
+<p><strong>一起来和php撸猫啊</strong></p>
+
+  </div>
+  <div class="post-footer">
+    
+
+    <a href="#top" class="top">Back to Top</a>
+  </div>
+</article>
+<footer>
+  &copy; 2018
+  <span class="author">
+    P1g3
+  </span>
+</footer>
+    </div>
+  </body>
+</html>
