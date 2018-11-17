@@ -9,7 +9,7 @@ body,
   color: #444;
 }
 .container {
-  max-width: 700px;
+  max-width: 840px;
   margin: 0 auto;
 }
 a {
@@ -151,7 +151,7 @@ a {
   color: #000;
 }
 .post {
-  padding: 0 15px;
+  padding: 0 20px;
   margin-bottom: 1.5em;
 }
 .post img {
@@ -260,7 +260,7 @@ a {
   border-bottom: 1px solid #000;
 }
 .archive {
-  padding: 0 15px;
+  padding: 0 20px;
   margin-bottom: 1em;
 }
 .archive .post-archive {
